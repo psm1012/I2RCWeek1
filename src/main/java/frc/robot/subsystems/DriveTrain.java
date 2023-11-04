@@ -8,6 +8,7 @@ package frc.robot.subsystems;
 
 import com.ctre.phoenix.motorcontrol.FeedbackDevice;
 import com.ctre.phoenix.motorcontrol.NeutralMode;
+import com.ctre.phoenix.motorcontrol.TalonSRXSimCollection;
 import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
 
 import edu.wpi.first.math.VecBuilder;
@@ -32,6 +33,9 @@ import com.kauailabs.navx.frc.AHRS;
 public class DriveTrain extends SubsystemBase {
   private final WPI_TalonSRX leftDriveTalon;
   private final WPI_TalonSRX rightDriveTalon;
+
+  private TalonSRXSimCollection leftDriveSim;
+  private TalonSRXSimCollection rightDriveSim;
 
   // code for simulating robot pose
   private Field2d m_field = new Field2d();
@@ -63,6 +67,9 @@ public class DriveTrain extends SubsystemBase {
     rightDriveTalon.configFactoryDefault();
     rightDriveTalon.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative, 0, 10);
 
+    leftDriveSim = leftDriveTalon.getSimCollection();
+    rightDriveSim = rightDriveTalon.getSimCollection();
+
     final double KvLinear = 2.98;
     final double KaLinear = 0.2;
     final double kVangular = 0.7;
@@ -87,7 +94,7 @@ public class DriveTrain extends SubsystemBase {
 
     m_field.setRobotPose(new Pose2d(0, 0, new Rotation2d(0)));
     SmartDashboard.putData("Field", m_field);
-    m_odometry = new DifferentialDriveOdometry(new Rotation2d(0.0), 0,0);
+    m_odometry = new DifferentialDriveOdometry(new Rotation2d(0.0), 0, 0);
 
   }
 
@@ -99,10 +106,20 @@ public class DriveTrain extends SubsystemBase {
   public void resetEncoders() {
     leftDriveTalon.setSelectedSensorPosition(0, 0, 10);
     rightDriveTalon.setSelectedSensorPosition(0, 0, 10);
+    
   }
 
   public double getTicks() {
     return (leftDriveTalon.getSelectedSensorPosition(0) + rightDriveTalon.getSelectedSensorPosition(0)) / 2.0;
+  }
+
+  public double ticksToMeters() {
+    return (0.1524 * Math.PI / 4096.0) * getTicks();
+
+  }
+
+  public double metersToTicks(double positionMeters){
+    return positionMeters / (0.1524 * Math.PI) * 4096.0;
   }
 
   public double getAngle() {
@@ -117,23 +134,28 @@ public class DriveTrain extends SubsystemBase {
   public void periodic() {
     SmartDashboard.putNumber("Left Output Percent", leftDriveTalon.getMotorOutputPercent());
     SmartDashboard.putNumber("Left Output Voltage", leftDriveTalon.getMotorOutputVoltage());
-    SmartDashboard.putNumber("Left Sim Pos", driveSim.getLeftPositionMeters());
     SmartDashboard.putNumber("Right Output Percent", rightDriveTalon.getMotorOutputPercent());
     SmartDashboard.putNumber("Right Output Voltage", rightDriveTalon.getMotorOutputVoltage());
-    SmartDashboard.putNumber("Right Sim Pos", driveSim.getRightPositionMeters());
-
     SmartDashboard.putNumber("Angle", navx.getAngle());
-
 
     LeftVoltage.setDouble(leftDriveTalon.getMotorOutputPercent());
     RightVoltage.setDouble(rightDriveTalon.getMotorOutputPercent());
+  }
+
+  @Override
+  public void simulationPeriodic(){
+    SmartDashboard.putNumber("Left Sim Pos", driveSim.getLeftPositionMeters());
+    SmartDashboard.putNumber("Right Sim Pos", driveSim.getRightPositionMeters());
+
+    //update encoder and gyros
+    leftDriveTalon.setSelectedSensorPosition(metersToTicks(driveSim.getLeftPositionMeters()), 0, 10);
+    rightDriveTalon.setSelectedSensorPosition(metersToTicks(driveSim.getRightPositionMeters()), 0, 10);
 
     // update robot pose
     driveSim.update(0.02);
     driveSim.setInputs(leftDriveTalon.getMotorOutputVoltage(), rightDriveTalon.getMotorOutputVoltage());
-    m_odometry.update(new Rotation2d(driveSim.getHeading().getRadians()), driveSim.getLeftPositionMeters(), driveSim.getRightPositionMeters());
+    m_odometry.update(new Rotation2d(driveSim.getHeading().getRadians()), driveSim.getLeftPositionMeters(),driveSim.getRightPositionMeters());
     // m_odometry.update(m_gyro.getRotation2d(),m_leftEncoder.getDistance(),m_rightEncoder.getDistance());
     m_field.setRobotPose(m_odometry.getPoseMeters());
-
   }
 }

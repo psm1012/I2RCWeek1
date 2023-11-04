@@ -8,6 +8,7 @@ import frc.robot.commands.*;
 import frc.robot.subsystems.*;
 import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 
@@ -28,6 +29,12 @@ public class RobotContainer {
 
   private final TankDrive tankDrive = new TankDrive(dt, joy1);
 
+  double setpoint = 5.0;
+
+  private final Autodrive autodrive = new Autodrive(dt, setpoint);
+
+  private final PIDTurn pidTurn = new PIDTurn(dt, 90.0);
+  
   /** The container for the robot. Contains subsystems, OI devices, and commands. */
   public RobotContainer() {
     dt.setDefaultCommand(tankDrive);
@@ -55,6 +62,15 @@ public class RobotContainer {
    */
   public Command getAutonomousCommand() {
     // An example command will be run in autonomous
-    return null;
+    return autodrive;
+    /*return new SequentialCommandGroup( 
+      new Autodrive(dt, 1.0), 
+      new PIDTurn(dt, 90), 
+      new Autodrive(dt, 1.0),
+      new PIDTurn(dt, 90),
+      new Autodrive(dt, 1.0),
+      new PIDTurn(dt, 90),
+      new Autodrive(dt, 1.0)
+      );*/
   }
 }
