@@ -5,6 +5,7 @@
 package frc.robot.commands;
 
 import edu.wpi.first.math.controller.PIDController;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.CommandBase;
 import frc.robot.subsystems.DriveTrain;
 
@@ -42,6 +43,7 @@ public class PIDTurn extends CommandBase {
   public void execute() {
     double output = pid.calculate(dt.getAngle(), setpointAngle);
     dt.tankDrive(-motorSign*output, motorSign*output); //one of the motors is negative so that the robot turns
+    System.out.println(output);
   }
   
 

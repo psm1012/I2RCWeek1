@@ -4,11 +4,14 @@
 
 package frc.robot;
 
-import frc.robot.commands.*;
-import frc.robot.subsystems.*;
+import frc.robot.commands.Autodrive;
+import frc.robot.commands.PIDTurn;
+import frc.robot.commands.TankDrive;
+import frc.robot.subsystems.DriveTrain;
 import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
+import edu.wpi.first.wpilibj2.command.WaitCommand;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 
@@ -20,24 +23,14 @@ import edu.wpi.first.wpilibj2.command.button.Trigger;
  */
 public class RobotContainer {
   // The robot's subsystems and commands are defined here...
-
-  
-  // Replace with CommandPS4Controller or CommandJoystick if needed
-  private final Joystick joy1 = new Joystick(Constants.USBOrder.Zero);
-
   private final DriveTrain dt = new DriveTrain();
+  private final Joystick joy = new Joystick(0);
 
-  private final TankDrive tankDrive = new TankDrive(dt, joy1);
+  private static boolean isXbox = false;
 
-  double setpoint = 5.0;
-
-  private final Autodrive autodrive = new Autodrive(dt, setpoint);
-
-  private final PIDTurn pidTurn = new PIDTurn(dt, 90.0);
-  
   /** The container for the robot. Contains subsystems, OI devices, and commands. */
   public RobotContainer() {
-    dt.setDefaultCommand(tankDrive);
+    dt.setDefaultCommand(new TankDrive(dt, joy));
     // Configure the trigger bindings
     configureBindings();
   }
@@ -52,7 +45,6 @@ public class RobotContainer {
    * joysticks}.
    */
   private void configureBindings() {
- 
   }
 
   /**
@@ -61,16 +53,24 @@ public class RobotContainer {
    * @return the command to run in autonomous
    */
   public Command getAutonomousCommand() {
-    // An example command will be run in autonomous
-    return autodrive;
-    /*return new SequentialCommandGroup( 
-      new Autodrive(dt, 1.0), 
-      new PIDTurn(dt, 90), 
-      new Autodrive(dt, 1.0),
-      new PIDTurn(dt, 90),
-      new Autodrive(dt, 1.0),
-      new PIDTurn(dt, 90),
-      new Autodrive(dt, 1.0)
-      );*/
+    // Goes in a box
+    SequentialCommandGroup commands = new SequentialCommandGroup(new Autodrive(dt, 2.5),
+                                                                 new PIDTurn(dt, 90),
+                                                                 new WaitCommand(1),
+                                                                 new Autodrive(dt, 2.5),
+                                                                 new PIDTurn(dt, 90),
+                                                                 new WaitCommand(1),
+                                                                 new Autodrive(dt, 2.5),
+                                                                 new PIDTurn(dt, 90),
+                                                                 new WaitCommand(1),
+                                                                 new Autodrive(dt, 2.5),
+                                                                 new PIDTurn(dt, 90),
+                                                                 new WaitCommand(1));
+                                                                 
+    return commands;
+  }
+
+  public static boolean isXbox() {
+    return isXbox;
   }
 }

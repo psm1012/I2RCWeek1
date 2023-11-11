@@ -1,5 +1,3 @@
-// Based upon 2021's Competition Season DriveTrain code
-
 // Copyright (c) FIRST and other WPILib contributors.
 // Open Source Software; you can modify and/or share it under the terms of
 // the WPILib BSD license file in the root directory of this project.
@@ -10,51 +8,75 @@ import com.ctre.phoenix.motorcontrol.FeedbackDevice;
 import com.ctre.phoenix.motorcontrol.NeutralMode;
 import com.ctre.phoenix.motorcontrol.TalonSRXSimCollection;
 import com.ctre.phoenix.motorcontrol.can.WPI_TalonSRX;
+import com.kauailabs.navx.frc.AHRS;
 
+import edu.wpi.first.hal.SimDouble;
+import edu.wpi.first.hal.simulation.SimDeviceDataJNI;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
-import edu.wpi.first.math.kinematics.DifferentialDriveOdometry;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.system.plant.LinearSystemId;
 import edu.wpi.first.math.util.Units;
-import edu.wpi.first.networktables.GenericEntry;
 import edu.wpi.first.wpilibj.SPI;
-import edu.wpi.first.wpilibj.shuffleboard.Shuffleboard;
-import edu.wpi.first.wpilibj.shuffleboard.ShuffleboardTab;
+import edu.wpi.first.wpilibj.drive.DifferentialDrive;
 import edu.wpi.first.wpilibj.simulation.DifferentialDrivetrainSim;
 import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants;
 
-import com.kauailabs.navx.frc.AHRS;
-
 public class DriveTrain extends SubsystemBase {
+  /** Creates a new DriveTrain. */
+
   private final WPI_TalonSRX leftDriveTalon;
   private final WPI_TalonSRX rightDriveTalon;
 
-  private TalonSRXSimCollection leftDriveSim;
-  private TalonSRXSimCollection rightDriveSim;
+  private final TalonSRXSimCollection leftDriveSim;
+  private final TalonSRXSimCollection rightDriveSim;
 
-  // code for simulating robot pose
-  private Field2d m_field = new Field2d();
-  private DifferentialDriveOdometry m_odometry;
+  private final DifferentialDrive drive;
   private final DifferentialDrivetrainSim driveSim;
 
-  private AHRS navx = new AHRS(SPI.Port.kMXP);
+  private static AHRS navx = new AHRS(SPI.Port.kMXP);
 
-  private ShuffleboardTab DTTab = Shuffleboard.getTab("DriveTrain");
-  private GenericEntry LeftVoltage = DTTab.add("Left Output Percent", 0.0).getEntry();
-  private GenericEntry RightVoltage = DTTab.add("Right Output Percent", 0.0).getEntry();
+  private Field2d field;
 
-  /** Creates a new DriveTrain */
+  // Provides variable to store motor voltage for simulator use
+  private double simRightVolts;
+  private double simLeftVolts;
+
   public DriveTrain() {
-    leftDriveTalon = new WPI_TalonSRX(Constants.DriveTrainPorts.LeftDriveTalonPort);
-    rightDriveTalon = new WPI_TalonSRX(Constants.DriveTrainPorts.RightDriveTalonPort);
 
-    leftDriveTalon.setNeutralMode(NeutralMode.Coast);
-    rightDriveTalon.setNeutralMode(NeutralMode.Coast);
+    leftDriveTalon = new WPI_TalonSRX(Constants.OperatorConstants.leftDriveTalonPort);
+    rightDriveTalon = new WPI_TalonSRX(Constants.OperatorConstants.rightDriveTalonPort);
+
+    leftDriveSim = leftDriveTalon.getSimCollection();
+    rightDriveSim = rightDriveTalon.getSimCollection();
+
+    // Create the simulation model of our drivetrain.
+    driveSim = new DifferentialDrivetrainSim(
+      // Create a linear system from our identification gains.
+      LinearSystemId.identifyDrivetrainSystem(Constants.SimConstants.kV,
+      Constants.SimConstants.kA, Constants.SimConstants.kVangular,
+      Constants.SimConstants.kAangular),
+      DCMotor.getCIM(1), // 1 CIM motor on each side of the drivetrain.
+      10.71, // 10.71:1 gearing reduction.
+      Constants.SimConstants.kTrackwidthMeters, // The track width is 0.7112
+      Units.inchesToMeters(Constants.OperatorConstants.wheelDiameterInInches/2), // The robot uses 3" radius wheels.
+        
+      // The standard deviations for measurement noise:
+      // x and y: 0.001 m
+      // heading: 0.001 rad
+      // l and r velocity: 0.1 m/s
+      // l and r position: 0.005 m
+      VecBuilder.fill(0.0001, 0.0001, 0.0001, 0.01, 0.01, 0.0005, 0.0005)
+    );
+    driveSim.setPose(new Pose2d(4,4,new Rotation2d(0)));    
+
+    // Motor settings
+    leftDriveTalon.setNeutralMode(NeutralMode.Brake);
+    rightDriveTalon.setNeutralMode(NeutralMode.Brake);
 
     leftDriveTalon.setInverted(false);
     rightDriveTalon.setInverted(true);
@@ -62,51 +84,109 @@ public class DriveTrain extends SubsystemBase {
     leftDriveTalon.setSensorPhase(true);
     rightDriveTalon.setSensorPhase(true);
 
-    leftDriveTalon.configFactoryDefault();
     leftDriveTalon.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative, 0, 10);
-    rightDriveTalon.configFactoryDefault();
     rightDriveTalon.configSelectedFeedbackSensor(FeedbackDevice.CTRE_MagEncoder_Relative, 0, 10);
 
-    leftDriveSim = leftDriveTalon.getSimCollection();
-    rightDriveSim = rightDriveTalon.getSimCollection();
+    resetEncoders();
+    navx.reset();
+    field = new Field2d();
+    field.setRobotPose(driveSim.getPose());
 
-    final double KvLinear = 2.98;
-    final double KaLinear = 0.2;
-    final double kVangular = 0.7;
-    final double kAangular = 0.3;
-    final double kTrackwidthMeters = 0.69;
+    drive = new DifferentialDrive(leftDriveTalon, rightDriveTalon);
 
-    // Create the simulation model of our drivetrain.
-    driveSim = new DifferentialDrivetrainSim(
-        // Create a linear system from our identification gains.
-        LinearSystemId.identifyDrivetrainSystem(KvLinear, KaLinear, kVangular, kAangular),
-        DCMotor.getCIM(1), // 1 CIM motor on each side of the drivetrain.
-        10.71, // 10.71:1 gearing reduction.
-        kTrackwidthMeters, // The track width is 0.7112
-        Units.inchesToMeters(3), // The robot uses 3" radius wheels.
-
-        // The standard deviations for measurement noise:
-        // x and y: 0.001 m
-        // heading: 0.001 rad
-        // l and r velocity: 0.1 m/s
-        // l and r position: 0.005 m
-        VecBuilder.fill(0.0001, 0.0001, 0.0001, 0.01, 0.01, 0.0005, 0.0005));
-
-    m_field.setRobotPose(new Pose2d(0, 0, new Rotation2d(0)));
-    SmartDashboard.putData("Field", m_field);
-    m_odometry = new DifferentialDriveOdometry(new Rotation2d(0.0), 0, 0);
+    leftDriveTalon.setExpiration(.02);
+    rightDriveTalon.setExpiration(.02);
 
   }
 
-  public void tankDrive(double leftSpeed, double rightSpeed) {
-    rightDriveTalon.set(rightSpeed);
-    leftDriveTalon.set(leftSpeed);
+  @Override
+  public void periodic() {
+    // This method will be called once per scheduler run
   }
 
+  @Override
+  public void simulationPeriodic() {
+    // Set inputs of voltage
+    driveSim.setInputs(simLeftVolts, simRightVolts);
+    // Update with dt of 0.02
+    driveSim.update(0.02);
+
+    // Update Quadrature for Left
+
+    leftDriveSim.setQuadratureRawPosition(
+        distanceToNativeUnits(
+            -driveSim.getLeftPositionMeters()));
+    leftDriveSim.setQuadratureVelocity(
+        velocityToNativeUnits(
+            -driveSim.getLeftVelocityMetersPerSecond()));
+
+    // Update Quadrature for Right
+    // Have to flip, to match phase of real encoder
+    // Left wheel goes CCW, Right goes CW for forward by default
+
+    rightDriveSim.setQuadratureRawPosition(
+        distanceToNativeUnits(
+            driveSim.getRightPositionMeters()));
+    rightDriveSim.setQuadratureVelocity(
+        velocityToNativeUnits(
+            driveSim.getRightVelocityMetersPerSecond()));
+
+    // Update Gyro
+    int dev = SimDeviceDataJNI.getSimDeviceHandle("navX-Sensor[0]");
+    SimDouble angle = new SimDouble(SimDeviceDataJNI.getSimValueHandle(dev, "Yaw"));
+    angle.set(driveSim.getHeading().getDegrees());
+
+    field.setRobotPose(driveSim.getPose());
+    SmartDashboard.putData("Field", field);
+
+  }
+
+  
+  /**
+   * Controls the left and right sides of the drive directly with voltages.
+   * Voltage is the native unit of Feedforward with WPILib
+   *
+   * @param left  the commanded left output
+   * @param right the commanded right output
+   */
+  public void tankDrive(double left, double right) {
+    simLeftVolts = left*12.0;
+    simRightVolts = right*12.0;
+    leftDriveTalon.setVoltage(left);
+    rightDriveTalon.setVoltage(right);
+    // WPILib would spit out "Looptime Overrun!" if this isn't included!
+    drive.feed();
+  }
+
+  /**
+   * Resets the chassis encoders to 0 ticks.
+   */
   public void resetEncoders() {
-    leftDriveTalon.setSelectedSensorPosition(0, 0, 10);
-    rightDriveTalon.setSelectedSensorPosition(0, 0, 10);
-    
+    leftDriveTalon.setSelectedSensorPosition(0);
+    rightDriveTalon.setSelectedSensorPosition(0);
+  }
+
+  // CTRE SIM methods:
+
+  private int distanceToNativeUnits(double positionMeters) {
+    double wheelRotations = positionMeters
+        / (Math.PI * Units.inchesToMeters(Constants.OperatorConstants.wheelDiameterInInches));
+    double motorRotations = wheelRotations * 1.0;
+    int sensorCounts = (int) (motorRotations * 4096.0);
+    return sensorCounts;
+  }
+  
+  private int velocityToNativeUnits(double velocityMetersPerSecond) {
+    double wheelRotationsPerSecond = velocityMetersPerSecond
+        / (Math.PI * Units.inchesToMeters(Constants.OperatorConstants.wheelDiameterInInches));
+    double motorRotationsPerSecond = wheelRotationsPerSecond * 1.0;
+    double motorRotationsPer100ms = motorRotationsPerSecond / 10.0;
+    int sensorCountsPer100ms = (int) (motorRotationsPer100ms * 4096.0);
+    return sensorCountsPer100ms;
+  }
+
+  public double metersToTicks(double positionMeters){
+    return positionMeters / (0.1524 * Math.PI) * 4096.0;
   }
 
   public double getTicks() {
@@ -115,11 +195,6 @@ public class DriveTrain extends SubsystemBase {
 
   public double ticksToMeters() {
     return (0.1524 * Math.PI / 4096.0) * getTicks();
-
-  }
-
-  public double metersToTicks(double positionMeters){
-    return positionMeters / (0.1524 * Math.PI) * 4096.0;
   }
 
   public double getAngle() {
@@ -128,34 +203,5 @@ public class DriveTrain extends SubsystemBase {
 
   public void resetNavx() {
     navx.reset();
-  }
-
-  @Override
-  public void periodic() {
-    SmartDashboard.putNumber("Left Output Percent", leftDriveTalon.getMotorOutputPercent());
-    SmartDashboard.putNumber("Left Output Voltage", leftDriveTalon.getMotorOutputVoltage());
-    SmartDashboard.putNumber("Right Output Percent", rightDriveTalon.getMotorOutputPercent());
-    SmartDashboard.putNumber("Right Output Voltage", rightDriveTalon.getMotorOutputVoltage());
-    SmartDashboard.putNumber("Angle", navx.getAngle());
-
-    LeftVoltage.setDouble(leftDriveTalon.getMotorOutputPercent());
-    RightVoltage.setDouble(rightDriveTalon.getMotorOutputPercent());
-  }
-
-  @Override
-  public void simulationPeriodic(){
-    SmartDashboard.putNumber("Left Sim Pos", driveSim.getLeftPositionMeters());
-    SmartDashboard.putNumber("Right Sim Pos", driveSim.getRightPositionMeters());
-
-    //update encoder and gyros
-    leftDriveTalon.setSelectedSensorPosition(metersToTicks(driveSim.getLeftPositionMeters()), 0, 10);
-    rightDriveTalon.setSelectedSensorPosition(metersToTicks(driveSim.getRightPositionMeters()), 0, 10);
-
-    // update robot pose
-    driveSim.update(0.02);
-    driveSim.setInputs(leftDriveTalon.getMotorOutputVoltage(), rightDriveTalon.getMotorOutputVoltage());
-    m_odometry.update(new Rotation2d(driveSim.getHeading().getRadians()), driveSim.getLeftPositionMeters(),driveSim.getRightPositionMeters());
-    // m_odometry.update(m_gyro.getRotation2d(),m_leftEncoder.getDistance(),m_rightEncoder.getDistance());
-    m_field.setRobotPose(m_odometry.getPoseMeters());
   }
 }
